@@ -57,6 +57,7 @@ const allowedOrigins = [
     'http://localhost:5000', // Local Backend (for self-calls if applicable)
     'https://edgestonefrontend.vercel.app', // Production Vercel Frontend
     'https://edgestonefrontend-b4zz7k8lh-aerotalks-projects.vercel.app', // Vercel Preview/Production URL
+    'https://ticketportal.edgestone.in', // EdgeStone Ticket Portal
 ];
 
 // Add production frontend URL if available
@@ -98,8 +99,8 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 // Health Check Route
 app.get('/', (req, res) => {
     res.status(200).json({
-        message: 'EdgeStone Ticket System API is running',
-        status: 'OK',
+        message: 'EdgeStone Ticket System API is running💙🤍',
+        status: 'OK✅',
         timestamp: new Date().toISOString(),
         version: '1.0.0'
     });
