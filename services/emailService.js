@@ -91,11 +91,26 @@ const sendViaGraph = async (options) => {
 
     if (options.attachments && options.attachments.length > 0) {
         message.hasAttachments = true;
+        const fs = require('fs');
+        const path = require('path');
         message.attachments = options.attachments.map(att => {
+            let contentBytes = att.content || att.contentBytes;
+            
+            if (!contentBytes && att.filename) {
+                try {
+                    const filePath = path.join(__dirname, '../uploads/attachments', att.filename);
+                    if (fs.existsSync(filePath)) {
+                        contentBytes = fs.readFileSync(filePath).toString('base64');
+                    }
+                } catch (err) {
+                    console.error(`Failed to read attachment file: ${err.message}`);
+                }
+            }
+
             const attachment = {
                 '@odata.type': '#microsoft.graph.fileAttachment',
-                name: att.filename || att.name,
-                contentBytes: att.content || att.contentBytes
+                name: att.originalName || att.filename || att.name || 'attachment',
+                contentBytes: contentBytes || ''
             };
             if (att.isInline) {
                 attachment.isInline = true;
@@ -233,6 +248,50 @@ const fetchNewGraphEmails = async () => {
                 references: null,
                 attachments: []
             };
+
+            if (msg.hasAttachments) {
+                try {
+                    const attachUrl = `https://graph.microsoft.com/v1.0/users/${userEmail}/messages/${msg.id}/attachments`;
+                    const attachRes = await fetch(attachUrl, { headers: { 'Authorization': `Bearer ${accessToken}` } });
+                    if (attachRes.ok) {
+                        const attachResult = await attachRes.json();
+                        const fs = require('fs');
+                        const path = require('path');
+                        
+                        const attachmentsDir = path.join(__dirname, '../uploads/attachments');
+                        if (!fs.existsSync(attachmentsDir)) {
+                            fs.mkdirSync(attachmentsDir, { recursive: true });
+                        }
+
+                        for (const attachment of attachResult.value || []) {
+                            if (attachment['@odata.type'] === '#microsoft.graph.fileAttachment' && attachment.contentBytes && !attachment.isInline) {
+                                const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+                                const safeName = attachment.name ? attachment.name.replace(/[^a-zA-Z0-9.-]/g, '_') : 'attachment';
+                                const fileName = `email-${uniqueSuffix}-${safeName}`;
+                                const filePath = path.join(attachmentsDir, fileName);
+                                
+                                fs.writeFileSync(filePath, Buffer.from(attachment.contentBytes, 'base64'));
+                                
+                                // Since we may not know the exact public protocol/host here without req object, 
+                                // we construct it using BACKEND_URL or a relative URL that frontend resolves.
+                                // Using BACKEND_URL from env if available, otherwise fallback.
+                                const baseUrl = process.env.BACKEND_URL || 'http://localhost:5000';
+                                const publicUrl = `${baseUrl}/uploads/attachments/${fileName}`;
+                                
+                                emailData.attachments.push({
+                                    url: publicUrl,
+                                    originalName: attachment.name || fileName,
+                                    filename: fileName,
+                                    mimeType: attachment.contentType,
+                                    size: attachment.size
+                                });
+                            }
+                        }
+                    }
+                } catch (attachErr) {
+                    logger.error(`[EMAIL] Failed to fetch/save attachments for message ${msg.id}: ${attachErr.message}`);
+                }
+            }
 
             if (processedGraphIds.has(msg.id)) {
                 await markEmailAsRead(msg.id, accessToken);

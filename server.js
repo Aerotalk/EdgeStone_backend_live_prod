@@ -60,6 +60,7 @@ const allowedOrigins = [
     'https://ticketportal.edgestone.in', // EdgeStone Ticket Portal
 ];
 
+
 // Add production frontend URL if available
 if (process.env.FRONTEND_URL) {
     allowedOrigins.push(process.env.FRONTEND_URL);
@@ -93,14 +94,22 @@ app.use(helmet({
 app.use(morgan('combined', { stream: { write: message => logger.info(message.trim()) } }));
 
 // Static file serving for uploads
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+app.use('/uploads', express.static(path.join(__dirname, 'uploads'), {
+    setHeaders: (res, filePath, stat) => {
+        // Force download for files in the attachments folder
+        if (filePath.includes('attachments') || filePath.includes('attachments\\') || filePath.includes('attachments/')) {
+            const filename = path.basename(filePath);
+            res.set('Content-Disposition', `attachment; filename="${encodeURIComponent(filename)}"`);
+        }
+    }
+}));
 
 // Routes (Placeholders)
 // Health Check Route
 app.get('/', (req, res) => {
     res.status(200).json({
-        message: 'EdgeStone Ticket System API is running💙🤍',
-        status: 'OK✅',
+        message: 'EdgeStone Ticket System API is running',
+        status: 'OK',
         timestamp: new Date().toISOString(),
         version: '1.0.0'
     });
