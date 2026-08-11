@@ -448,6 +448,7 @@ const createTicketFromEmail = async (emailData) => {
         let circuitId = null;
         let circuitUUID = null;
         let foundLocation = 'none';
+        let usedSupplierCircuitId = false;
 
         const aiService = require('./aiService');
         
@@ -483,6 +484,9 @@ const createTicketFromEmail = async (emailData) => {
                         circuitId = matchingCircuit.customerCircuitId;
                         circuitUUID = matchingCircuit.id;
                         foundLocation = 'subject';
+                        if (matchingCircuit.supplierCircuitId && matchingCircuit.supplierCircuitId.toUpperCase() === vidUpper) {
+                            usedSupplierCircuitId = true;
+                        }
                         logger.info(`🎟️ [TICKET] 🔍 Regex Pre-Check: Detected Circuit ID "${vid}" in SUBJECT. Skipping AI call.`);
                         break;
                     }
@@ -502,6 +506,9 @@ const createTicketFromEmail = async (emailData) => {
                             circuitId = matchingCircuit.customerCircuitId;
                             circuitUUID = matchingCircuit.id;
                             foundLocation = 'body';
+                            if (matchingCircuit.supplierCircuitId && matchingCircuit.supplierCircuitId.toUpperCase() === vidUpper) {
+                                usedSupplierCircuitId = true;
+                            }
                             logger.info(`🎟️ [TICKET] 🔍 Regex Pre-Check: Detected Circuit ID "${vid}" in BODY. Skipping AI call.`);
                             break;
                         }
@@ -526,6 +533,9 @@ const createTicketFromEmail = async (emailData) => {
                         circuitId = matchingCircuit.customerCircuitId;
                         circuitUUID = matchingCircuit.id;
                         foundLocation = aiResult.foundIn;
+                        if (matchingCircuit.supplierCircuitId && matchingCircuit.supplierCircuitId.toUpperCase() === aiResult.circuitId.toUpperCase()) {
+                            usedSupplierCircuitId = true;
+                        }
                         logger.info(`🎟️ [TICKET] 🧠 AI Smart Auto-Detected Circuit ID: ${aiResult.circuitId} in ${foundLocation}`);
                     }
                 }
@@ -534,6 +544,13 @@ const createTicketFromEmail = async (emailData) => {
             // --- Disambiguate Sender based on detected circuit ---
             if (circuitId) {
                 const detectedCircuitRecord = allCircuits.find(c => c.customerCircuitId === circuitId || c.supplierCircuitId === circuitId);
+                
+                if (usedSupplierCircuitId) {
+                    logger.info(`🎟️ [TICKET] 🎯 Sender used Supplier Circuit ID. Forcing classification as Vendor.`);
+                    ticketType = 'Vendor';
+                    potentialVendorIds.push('implicit-vendor-from-circuit'); 
+                }
+                
                 if (detectedCircuitRecord) {
                     let matchedCircuitVendorId = null;
 
