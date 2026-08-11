@@ -448,11 +448,92 @@ const analyzeRoadmapState = async (roadmapData) => {
     }
 };
 
+/**
+ * Generate a full-fledged explanation for the agents regarding an email that wasn't raised as a ticket.
+ */
+const generateAgentNotificationSummary = async (emailData, context) => {
+    if (!openai) {
+        return context.reason;
+    }
+    
+    try {
+        const prompt = `
+        You are "Keery", the intelligent assistant for EdgeStone ticketing system agents.
+        An incoming email was received but we did NOT raise a ticket for it. We need to notify the agents.
+        
+        Generate a clear, professional notification for the agents explaining the situation.
+        Explain who the sender/recipient involved is, what the email was about, and exactly WHY a ticket wasn't raised.
+        If it's vendor maintenance, explicitly state "Vendor has notified for maintenance for circuit [Circuit ID] (instead of raising a ticket from the vendor side)".
+        
+        Keep it concise (2-3 sentences max) but full-fledged. Do not use markdown headers, just plain text or simple bolding.
+        
+        Context provided by the system:
+        ${context.reason}
+        
+        Email Details:
+        From: ${emailData.from}
+        Subject: ${emailData.subject}
+        Circuit ID Mentioned: ${context.circuitId || 'None'}
+        `;
+
+        const response = await openai.chat.completions.create({
+            model: 'gpt-4o-mini',
+            messages: [
+                { role: 'system', content: prompt },
+                { role: 'user', content: `Email Body Preview: ${(emailData.body || '').substring(0, 500)}` }
+            ],
+            temperature: 0.5,
+        });
+
+        return response.choices[0].message.content.trim();
+    } catch (e) {
+        logger.error(`🚨 [AI] Error generating agent notification summary: ${e.message}`);
+        return context.reason;
+    }
+};
+
+/**
+ * Generate a concise summary of an email reply for the Activity Log.
+ */
+const generateReplySummaryForActivityLog = async (emailBody, senderInfo, isSystem = false) => {
+    if (!openai) {
+        return `Reply received from ${senderInfo}`;
+    }
+
+    try {
+        const prompt = `
+        You are "Keery", the intelligent assistant for EdgeStone ticketing system agents.
+        Summarize the following email reply so that agents can easily track events in the Activity Log.
+        If the email is an automated system email (isSystem=true), explicitly state that an automated email was sent.
+        Keep the summary very concise, ideally 1-2 sentences. 
+        Focus on the core intent, action, or update in the email.
+        
+        Format: "Keery Summary: [Your summary here]"
+        `;
+
+        const response = await openai.chat.completions.create({
+            model: 'gpt-4o-mini',
+            messages: [
+                { role: 'system', content: prompt },
+                { role: 'user', content: `Sender: ${senderInfo}\nIs System Email: ${isSystem}\nBody: ${(emailBody || '').substring(0, 800)}` }
+            ],
+            temperature: 0.3,
+        });
+
+        return response.choices[0].message.content.trim();
+    } catch (e) {
+        logger.error(`🚨 [AI] Error generating reply summary: ${e.message}`);
+        return `Reply received from ${senderInfo}`;
+    }
+};
+
 module.exports = {
    analyzeEmailForCircuitId,
    processChatbotQuery,
    extractSLAStartTimes,
    generateMissingCircuitIdReply,
    generateBodyCircuitIdWarning,
-   analyzeRoadmapState
+   analyzeRoadmapState,
+   generateAgentNotificationSummary,
+   generateReplySummaryForActivityLog
 };

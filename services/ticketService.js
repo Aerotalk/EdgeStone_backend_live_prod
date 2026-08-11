@@ -198,13 +198,15 @@ const appendClientReplyToTicket = async (ticket, emailData) => {
         attachments: emailData.attachments || []
     });
 
-    // Log activity
+    // Log activity with AI summary
+    const aiService = require('./aiService');
+    const summary = await aiService.generateReplySummaryForActivityLog(replyText, fromName || from, false);
     const ActivityLogModel = require('../models/activityLog');
     const now = new Date();
     await ActivityLogModel.createActivityLog({
         ticketId: ticket.id,
         action: 'client_replied',
-        description: `Client ${fromName || from} replied to the ticket via email`,
+        description: summary,
         time: now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }),
         date: now.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
         author: fromName || from,
@@ -251,13 +253,15 @@ const appendVendorReplyToTicket = async (ticket, emailData, vendorId = null) => 
         attachments: emailData.attachments || []
     });
 
-    // Log activity
+    // Log activity with AI summary
+    const aiService = require('./aiService');
+    const summary = await aiService.generateReplySummaryForActivityLog(replyText, fromName || from, false);
     const ActivityLogModel = require('../models/activityLog');
     const now = new Date();
     await ActivityLogModel.createActivityLog({
         ticketId: ticket.id,
         action: 'vendor_replied',
-        description: `Vendor ${fromName || from} replied to the ticket via email`,
+        description: summary,
         time: now.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false }),
         date: now.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
         author: fromName || from,
@@ -324,10 +328,21 @@ const createTicketFromEmail = async (emailData) => {
         // 0. Check if this email is a reply to an existing ticket
         const existingTicket = await findExistingTicketForReply(inReplyTo, references, subject);
         if (existingTicket) {
-            // Determine if the sender is a known Vendor (case-insensitive)
+            // Determine if the sender is a known Vendor (case-insensitive + domain match)
             const VendorModel = require('../models/vendor');
             const vendors = await VendorModel.findAllVendors();
-            let matchedVendors = vendors.filter(v => v.emails.some(e => e.toLowerCase() === from.toLowerCase()));
+            const fromDomain = from.split('@')[1]?.toLowerCase();
+            
+            let matchedVendors = vendors.filter(v => v.emails.some(e => {
+                const vendorEmail = e.toLowerCase();
+                if (vendorEmail === from.toLowerCase()) return true;
+                const vendorDomain = vendorEmail.split('@')[1];
+                if (vendorDomain && vendorDomain === fromDomain && !['gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com'].includes(vendorDomain)) {
+                    return true;
+                }
+                return false;
+            }));
+            
             let isVendor = matchedVendors.length > 0;
             let finalVendorId = null;
 
@@ -360,18 +375,19 @@ const createTicketFromEmail = async (emailData) => {
                 finalVendorId = prioritizedVendor ? prioritizedVendor.id : matchedVendors[0].id;
             }
 
-            // PREVENT FALSE POSITIVE: If the sender is the original client, don't default to vendor thread
-            if (existingTicket.email && existingTicket.email.toLowerCase() === from.toLowerCase()) {
-                isVendor = false;
-                finalVendorId = null;
-            }
-
             // EXPLICIT ROUTING: If the subject contains the explicit vendor suffix (e.g. [#1024-V]), force it into vendor thread
             // even if the email doesn't strictly match the saved vendor emails list in the DB yet!
             if (subject && /\[#V?\d+-V\]/i.test(subject)) {
                 logger.info(`🎟️ [TICKET] 🧵 Force-routing reply into Vendor thread due to -V tag in subject`);
                 isVendor = true;
                 if (!finalVendorId) finalVendorId = existingTicket.vendorId; // Default to primary vendor if unmapped
+            }
+
+            // PREVENT FALSE POSITIVE: If the sender is the original client, don't default to vendor thread
+            // UNLESS they explicitly used the -V tag (which is caught and set to true above)
+            if (!isVendor && existingTicket.email && existingTicket.email.toLowerCase() === from.toLowerCase()) {
+                isVendor = false;
+                finalVendorId = null;
             }
 
             if (isVendor) {
@@ -388,13 +404,33 @@ const createTicketFromEmail = async (emailData) => {
         let vendorId = null;
         let ticketType = 'Client';
 
+        const fromDomain = from.split('@')[1]?.toLowerCase();
+        
         const ClientModel = require('../models/client');
         const clients = await ClientModel.findAllClients();
-        potentialClientIds = clients.filter(c => c.emails.some(e => e.toLowerCase() === from.toLowerCase())).map(c => c.id);
+        potentialClientIds = clients.filter(c => c.emails.some(e => {
+            const clientEmail = e.toLowerCase();
+            if (clientEmail === from.toLowerCase()) return true;
+            const clientDomain = clientEmail.split('@')[1];
+            const blockedDomains = ['gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com', 'icloud.com', 'mac.com', 'me.com', 'proton.me', 'protonmail.com', 'aol.com', 'zoho.com', 'ymail.com', 'live.com'];
+            if (clientDomain && clientDomain === fromDomain && !blockedDomains.includes(clientDomain)) {
+                return true;
+            }
+            return false;
+        })).map(c => c.id);
 
         const VendorModel = require('../models/vendor');
         const vendors = await VendorModel.findAllVendors();
-        potentialVendorIds = vendors.filter(v => v.emails.some(e => e.toLowerCase() === from.toLowerCase())).map(v => v.id);
+        potentialVendorIds = vendors.filter(v => v.emails.some(e => {
+            const vendorEmail = e.toLowerCase();
+            if (vendorEmail === from.toLowerCase()) return true;
+            const vendorDomain = vendorEmail.split('@')[1];
+            const blockedDomains = ['gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com', 'icloud.com', 'mac.com', 'me.com', 'proton.me', 'protonmail.com', 'aol.com', 'zoho.com', 'ymail.com', 'live.com'];
+            if (vendorDomain && vendorDomain === fromDomain && !blockedDomains.includes(vendorDomain)) {
+                return true;
+            }
+            return false;
+        })).map(v => v.id);
 
         // Set initial defaults (first match wins, will be disambiguated by circuit later if needed)
         if (potentialClientIds.length > 0) {
@@ -520,6 +556,17 @@ const createTicketFromEmail = async (emailData) => {
                         logger.info(`🎟️ [TICKET] 🎯 Disambiguated Sender: Assigned to Vendor ${vendorId} based on Circuit ${circuitId}`);
                     } 
                     // Otherwise, always assign it to the Client who owns the circuit (this handles internal employees forwarding emails)
+                    else if (detectedCircuitRecord.clientId && potentialClientIds.includes(detectedCircuitRecord.clientId)) {
+                        clientId = detectedCircuitRecord.clientId;
+                        ticketType = 'Client';
+                        vendorId = null;
+                        logger.info(`🎟️ [TICKET] 🎯 Disambiguated Sender: Assigned to Client ${clientId} based on Circuit ${circuitId}`);
+                    }
+                    // Handle dual-entities who sent a valid circuit ID but they don't own it as a client or vendor!
+                    else if (potentialClientIds.length > 0 && potentialVendorIds.length > 0) {
+                        ticketType = 'Confused';
+                        logger.warn(`⚠️ 🎟️ [TICKET] 🚫 Dual-entity sender ${from} provided Circuit ID ${circuitId} but is not assigned to it. Marking as Confused.`);
+                    }
                     else if (detectedCircuitRecord.clientId) {
                         clientId = detectedCircuitRecord.clientId;
                         ticketType = 'Client';
@@ -537,8 +584,26 @@ const createTicketFromEmail = async (emailData) => {
         if (!circuitId) {
             logger.warn(`⚠️ 🎟️ [TICKET] 🚫 DROPPED EMAIL: Subject "${subject}" from ${from} does not contain any recognized Circuit ID natively or via AI. Ticket will NOT be created.`);
             
-            // Send AI rejection email if they are a valid Client
-            if (clientId) {
+            const notificationService = require('./notificationService');
+            
+            if (potentialClientIds.length > 0 && potentialVendorIds.length > 0) {
+                // Dual entity - confused!
+                logger.info(`🤖 🎟️ [TICKET] Dual-entity sender ${from} without circuit ID. Notifying agents.`);
+                const aiMessage = await aiService.generateAgentNotificationSummary({from, subject, body}, {reason: "Ambiguous email from dual-entity (Client & Vendor) with no circuit ID. We need manual review.", circuitId: null});
+                notificationService.sendNotification({ 
+                    type: 'manual_review', 
+                    message: aiMessage
+                });
+            } else if (potentialVendorIds.length > 0) {
+                // Pure vendor
+                logger.info(`🤖 🎟️ [TICKET] Vendor ${from} sent email without circuit ID. Notifying agents of maintenance.`);
+                const aiMessage = await aiService.generateAgentNotificationSummary({from, subject, body}, {reason: "Vendor email received. Vendors cannot raise tickets.", circuitId: null});
+                notificationService.sendNotification({ 
+                    type: 'vendor_update', 
+                    message: aiMessage
+                });
+            } else if (clientId) {
+                // Send AI rejection email if they are a valid Client
                 logger.info(`🤖 🎟️ [TICKET] Sending AI missing-circuit rejection email to valid client: ${from}`);
                 const aiReplyText = await aiService.generateMissingCircuitIdReply(fromName || from, subject, body);
                 const emailService = require('./emailService');
@@ -555,7 +620,8 @@ const createTicketFromEmail = async (emailData) => {
         }
 
         // 💡 NEW TICKET AI RULE: Circuit ID found in body but NOT subject -> create ticket but send a warning back
-        if (foundLocation === 'body') {
+        // VENDORS SHOULD NEVER RECEIVE AUTOMATED MAILS
+        if (foundLocation === 'body' && ticketType !== 'Vendor' && potentialVendorIds.length === 0) {
              logger.info(`⚠️ 🎟️ [TICKET] AI detected Circuit ID (${circuitId}) only in the body. Triggering AI warning email.`);
              
              // Wrap in an async IIFE to fire-and-forget without blocking ticket creation
@@ -577,9 +643,27 @@ const createTicketFromEmail = async (emailData) => {
              })();
         }
 
+        // 🛡️ STOP CONFUSED DUAL-ENTITIES
+        if (ticketType === 'Confused') {
+             logger.warn(`⚠️ 🎟️ [TICKET] 🚫 DROPPED EMAIL: Ambiguous email from dual-entity ${from}.`);
+             const notificationService = require('./notificationService');
+             const aiMessage = await aiService.generateAgentNotificationSummary({from, subject, body}, {reason: "Dual-entity sender provided a circuit ID they do not own as client or vendor. Needs manual review.", circuitId: circuitId});
+             notificationService.sendNotification({ 
+                 type: 'manual_review', 
+                 message: aiMessage
+             });
+             return null;
+        }
+
         // 🛡️ STOP VENDOR TICKETS: As per client request, Vendors cannot raise NEW tickets.
         if (ticketType === 'Vendor') {
             logger.warn(`⚠️ 🎟️ [TICKET] 🚫 DROPPED EMAIL: Subject "${subject}" from Vendor ${from}. Vendors are not allowed to raise new tickets. Email ignored.`);
+            const notificationService = require('./notificationService');
+            const aiMessage = await aiService.generateAgentNotificationSummary({from, subject, body}, {reason: "Vendor maintenance/update received. No ticket created.", circuitId: circuitId});
+            notificationService.sendNotification({ 
+                type: 'vendor_update', 
+                message: aiMessage
+            });
             return null;
         }
 
@@ -674,7 +758,8 @@ const createTicketFromEmail = async (emailData) => {
         // Note: SLA creation has been moved to appendVendorReplyToTicket 
         // to strictly enforce that SLA only begins when the Vendor replies.
         // 6. Send Auto-Reply with 5-second delay (Only for Clients)
-        if (ticketType === 'Vendor') {
+        // VENDORS SHOULD NEVER RECEIVE AUTOMATED MAILS
+        if (ticketType === 'Vendor' || potentialVendorIds.length > 0) {
             logger.info(`🎟️ [TICKET] ⏰ Skipping auto-reply for Vendor ticket ${ticket.ticketId} to prevent infinite automated loops.`);
             return ticket;
         }
@@ -707,12 +792,14 @@ const createTicketFromEmail = async (emailData) => {
                 logger.info(`🎟️ [TICKET] 📤 Auto-reply sent successfully to ${from}`);
 
                 // Log auto-reply activity
+                const aiService = require('./aiService');
+                const summary = await aiService.generateReplySummaryForActivityLog('Thank you for reaching out to us. We have received your ticket and our team will get back to you as soon as possible. Please note that this is an automated response and this email box is not be monitored.', 'System Auto-Reply', true);
                 const ActivityLogModel = require('../models/activityLog');
                 const now = new Date();
                 await ActivityLogModel.createActivityLog({
                     ticketId: ticket.id,
                     action: 'auto_replied',
-                    description: 'Auto-reply sent to customer',
+                    description: summary,
                     time: now.toLocaleTimeString('en-US', {
                         hour: '2-digit',
                         minute: '2-digit',
@@ -779,8 +866,24 @@ const replyToTicket = async (ticketId, message, agentEmail, agentName, htmlConte
 
         const recipientEmails = (emailOverrides.to && Array.isArray(emailOverrides.to) && emailOverrides.to.length > 0) ? emailOverrides.to : [ticket.email];
         const emailSubject = emailOverrides.subject || `Re: [${ticket.ticketId}] ${ticket.header}`;
-        const ccEmails = (emailOverrides.cc && Array.isArray(emailOverrides.cc)) ? emailOverrides.cc : [];
-        const bccEmails = (emailOverrides.bcc && Array.isArray(emailOverrides.bcc)) ? emailOverrides.bcc : [];
+        
+        const rawCcEmails = (emailOverrides.cc && Array.isArray(emailOverrides.cc)) ? emailOverrides.cc : [];
+        const rawBccEmails = (emailOverrides.bcc && Array.isArray(emailOverrides.bcc)) ? emailOverrides.bcc : [];
+
+        // 🛡️ OUTBOUND SANITIZATION: Strip vendor emails from client-facing CC and BCC lists
+        const VendorModel = require('../models/vendor');
+        const vendors = await VendorModel.findAllVendors();
+        const allVendorEmails = new Set();
+        vendors.forEach(v => {
+            if (v.emails) v.emails.forEach(e => allVendorEmails.add(e.toLowerCase().trim()));
+        });
+
+        const ccEmails = rawCcEmails.filter(e => !allVendorEmails.has(e.toLowerCase().trim()));
+        const bccEmails = rawBccEmails.filter(e => !allVendorEmails.has(e.toLowerCase().trim()));
+
+        if (ccEmails.length < rawCcEmails.length || bccEmails.length < rawBccEmails.length) {
+            logger.warn(`⚠️ 🎟️ [TICKET] Outbound sanitization stripped vendor emails from CC/BCC list to prevent leaks on Ticket ${ticket.ticketId}`);
+        }
 
         // 2. Create Reply Record
         const reply = await TicketModel.addReply(ticket.id, {

@@ -10,14 +10,14 @@ generator client {
 }
 
 model User {
-  id           String @id @default(uuid())
-  name         String
-  email        String @unique
-  passwordHash String
-  status       String @default("Active") // Active, In-Active
-  createdOn    String // Storing as string to match frontend display format e.g., "10 Jan 2024"
-  access       Json // JSON object: { dashboard: boolean, sla: boolean, vendor: boolean, superAdmin: boolean, client: boolean }
-  role         String @default("Agent") // Helper field
+  id             String  @id @default(uuid())
+  name           String
+  email          String  @unique
+  passwordHash   String
+  status         String  @default("Active") // Active, In-Active
+  createdOn      String // Storing as string to match frontend display format e.g., "10 Jan 2024"
+  access         Json // JSON object: { dashboard: boolean, sla: boolean, vendor: boolean, superAdmin: boolean, client: boolean }
+  role           String  @default("Agent") // Helper field
   profilePicture String? // URL for profile picture
 
   createdAt DateTime @default(now())
@@ -29,15 +29,15 @@ model User {
 }
 
 model Agent {
-  id           String   @id @default(uuid())
-  name         String
-  email        String   @unique // Login email
-  passwordHash String
-  status       String   @default("Active") // Active, In-Active
-  createdOn    String // Display date string "10 Jan 2024"
-  emails       String[] // Secondary contact emails
-  isSuperAdmin Boolean  @default(false) // Kept for legacy/fallback
-  role         String   @default("Support crew") // "Super admin", "Manager", "Support crew"
+  id             String   @id @default(uuid())
+  name           String
+  email          String   @unique // Login email
+  passwordHash   String
+  status         String   @default("Active") // Active, In-Active
+  createdOn      String // Display date string "10 Jan 2024"
+  emails         String[] // Secondary contact emails
+  isSuperAdmin   Boolean  @default(false) // Kept for legacy/fallback
+  role           String   @default("Support crew") // "Super admin", "Manager", "Support crew"
   profilePicture String? // URL for profile picture
 
   createdAt DateTime @default(now())
@@ -68,12 +68,12 @@ model Vendor {
   status    String   @default("Active")
   createdOn String
 
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  circuits  Circuit[]
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  circuits       Circuit[]
   vendorCircuits VendorCircuit[]
-  tickets   Ticket[]
-  slas      Sla[]
+  tickets        Ticket[]
+  slas           Sla[]
 }
 
 model Ticket {
@@ -96,7 +96,7 @@ model Ticket {
 
   vendorId String?
   vendor   Vendor? @relation(fields: [vendorId], references: [id])
-  
+
   ticketType String @default("Client") // "Client" or "Vendor"
 
   assignedUserId String?
@@ -104,7 +104,7 @@ model Ticket {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  
+
   isSlaActive Boolean @default(true)
 
   replies      Reply[]
@@ -112,6 +112,15 @@ model Ticket {
   slaRecords   SLARecord[]
   activityLogs ActivityLog[]
   workNotes    WorkNote[]
+
+  @@index([status])
+  @@index([priority])
+  @@index([createdAt])
+  @@index([clientId])
+  @@index([vendorId])
+  @@index([assignedUserId])
+  @@index([messageId])
+  @@index([ticketType])
 }
 
 model Reply {
@@ -128,11 +137,15 @@ model Reply {
   subject   String? // Optional subject override
   messageId String? // Outgoing email Message-ID for threading
 
-  ticketId String
-  ticket   Ticket @relation(fields: [ticketId], references: [id])
-  attachments Json? @default("[]")
+  ticketId    String
+  ticket      Ticket @relation(fields: [ticketId], references: [id])
+  attachments Json?  @default("[]")
 
   createdAt DateTime @default(now())
+
+  @@index([ticketId])
+  @@index([messageId])
+  @@index([createdAt])
 }
 
 model Note {
@@ -160,11 +173,13 @@ model SLARecord {
   status       String // Breached, Safe
   compensation String?
   statusReason String?
-  timeZone     String @default("UTC")
+  timeZone     String  @default("UTC")
 
   ticketId String
   type     String @default("CLIENT") // "CLIENT" | "VENDOR"
   ticket   Ticket @relation(fields: [ticketId], references: [id])
+
+  @@index([ticketId])
 }
 
 // --- Work Notes Model (ServiceNow-like internal notes) ---
@@ -185,6 +200,9 @@ model WorkNote {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([ticketId])
+  @@index([createdAt])
 }
 
 // --- Activity Log Model (ServiceNow-like activity tracking) ---
@@ -206,6 +224,9 @@ model ActivityLog {
   ticket   Ticket @relation(fields: [ticketId], references: [id])
 
   createdAt DateTime @default(now())
+
+  @@index([ticketId])
+  @@index([createdAt])
 }
 
 // --- Global Note Model (Shift Handover) ---
@@ -252,23 +273,26 @@ model Circuit {
   circuitSlaValue CircuitSLAValue?
 
   // New SLA management (full lifecycle SLAs per vendor/customer)
-  slas     Sla[]
-  
-  isMultiVendor Boolean @default(false)
+  slas Sla[]
+
+  isMultiVendor  Boolean         @default(false)
   vendorCircuits VendorCircuit[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([clientId])
+  @@index([vendorId])
 }
 
 model VendorCircuit {
-  id                         String  @id @default(uuid())
-  circuitId                  String
-  circuit                    Circuit @relation(fields: [circuitId], references: [id], onDelete: Cascade)
-  
-  vendorId                   String?
-  vendor                     Vendor? @relation(fields: [vendorId], references: [id])
-  
+  id        String  @id @default(uuid())
+  circuitId String
+  circuit   Circuit @relation(fields: [circuitId], references: [id], onDelete: Cascade)
+
+  vendorId String?
+  vendor   Vendor? @relation(fields: [vendorId], references: [id])
+
   supplierCircuitId          String?
   supplierPoNumber           String?
   supplierServiceDescription String?
@@ -280,6 +304,9 @@ model VendorCircuit {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([circuitId])
+  @@index([vendorId])
 }
 
 // Legacy: stores raw SLA % string (e.g. "99.50%") against a circuit
@@ -293,8 +320,6 @@ model CircuitSLAValue {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
-
-
 
 // ============================================================
 // --- SLA Management Engine (new) ---
@@ -330,6 +355,10 @@ model Sla {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+
+  @@index([circuitId])
+  @@index([vendorId])
+  @@index([customerId])
 }
 
 // Availability tier rule — fully dynamic per SLA
@@ -340,9 +369,9 @@ model SlaRule {
   slaId String
   sla   Sla    @relation(fields: [slaId], references: [id], onDelete: Cascade)
 
-  upperLimit    Float?  // null = open upper bound (e.g. Av > 99)
+  upperLimit    Float? // null = open upper bound (e.g. Av > 99)
   upperOperator String? // "<" | "<="
-  lowerLimit    Float?  // null = open lower bound
+  lowerLimit    Float? // null = open lower bound
   lowerOperator String? // ">" | ">="
 
   compensationPercentage Float @default(0) // % of MRC
@@ -386,13 +415,13 @@ model Signature {
 // ============================================================
 
 model Notification {
-  id          String   @id @default(uuid())
-  title       String?
-  message     String
-  type        String   @default("info")
-  isRead      Boolean  @default(false)
-  ticketId    String?
-  
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id       String  @id @default(uuid())
+  title    String?
+  message  String
+  type     String  @default("info")
+  isRead   Boolean @default(false)
+  ticketId String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

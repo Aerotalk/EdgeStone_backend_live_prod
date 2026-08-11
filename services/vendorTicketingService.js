@@ -8,8 +8,7 @@ const prisma = require('../models/index');
 const getVendorEmailsForTicket = async (ticketId) => {
     let ticket;
     if (ticketId.startsWith('#')) {
-        const tickets = await TicketModel.findAllTickets();
-        ticket = tickets.find(t => t.ticketId === ticketId);
+        ticket = await TicketModel.findTicketByTicketId(ticketId);
     } else {
         ticket = await TicketModel.findTicketById(ticketId);
     }
@@ -47,8 +46,7 @@ const replyToVendor = async (ticketId, emailData, agentEmail, agentName) => {
         // 1. Fetch the ticket
         let ticket;
         if (ticketId.startsWith('#')) {
-            const tickets = await TicketModel.findAllTickets();
-            ticket = tickets.find(t => t.ticketId === ticketId);
+            ticket = await TicketModel.findTicketByTicketId(ticketId);
         } else {
             ticket = await TicketModel.findTicketById(ticketId);
         }
@@ -72,11 +70,18 @@ const replyToVendor = async (ticketId, emailData, agentEmail, agentName) => {
                 // Fallback: If ticket is a client ticket but has a circuit, look up the circuit's vendor
                 const circuit = await prisma.circuit.findUnique({
                     where: { customerCircuitId: ticket.circuitId },
-                    include: { vendor: true }
+                    include: { vendor: true, vendorCircuits: { include: { vendor: true } } }
                 });
                 
-                if (circuit && circuit.vendor && circuit.vendor.emails && circuit.vendor.emails.length > 0) {
-                    vendorContactEmail = circuit.vendor.emails[0];
+                if (circuit) {
+                    if (circuit.isMultiVendor && circuit.vendorCircuits && circuit.vendorCircuits.length > 1) {
+                        throw new Error(`Circuit ${ticket.circuitId} has multiple vendors. You must explicitly select which vendor you are trying to email.`);
+                    }
+                    if (circuit.vendor && circuit.vendor.emails && circuit.vendor.emails.length > 0) {
+                        vendorContactEmail = circuit.vendor.emails[0];
+                    } else if (circuit.vendorCircuits && circuit.vendorCircuits.length === 1 && circuit.vendorCircuits[0].vendor && circuit.vendorCircuits[0].vendor.emails.length > 0) {
+                        vendorContactEmail = circuit.vendorCircuits[0].vendor.emails[0];
+                    }
                 }
             }
             
