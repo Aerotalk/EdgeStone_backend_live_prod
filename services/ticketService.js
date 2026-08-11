@@ -247,7 +247,7 @@ const appendVendorReplyToTicket = async (ticket, emailData, vendorId = null) => 
         date: emailReceivedDate.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }),
         author: fromName || from,
         type: 'vendor',
-        category: vendorId ? `vendor_${vendorId}` : 'vendor',
+        category: 'vendor',
         to: [from],
         messageId: emailData.messageId || null,
         attachments: emailData.attachments || []
