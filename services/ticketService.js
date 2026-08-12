@@ -559,9 +559,20 @@ const createTicketFromEmail = async (emailData) => {
                         const matchingVendorCircuit = detectedCircuitRecord.vendorCircuits.find(vc => vc.vendorId && potentialVendorIds.includes(vc.vendorId));
                         if (matchingVendorCircuit) {
                             matchedCircuitVendorId = matchingVendorCircuit.vendorId;
+                        } else if (usedSupplierCircuitId) {
+                            // Match by supplierCircuitId for unregistered vendor emails
+                            const matchingVCBySupplierId = detectedCircuitRecord.vendorCircuits.find(vc => vc.supplierCircuitId && vc.supplierCircuitId.toUpperCase() === circuitId.toUpperCase());
+                            if (matchingVCBySupplierId && matchingVCBySupplierId.vendorId) {
+                                matchedCircuitVendorId = matchingVCBySupplierId.vendorId;
+                            } else {
+                                matchedCircuitVendorId = detectedCircuitRecord.vendorCircuits[0].vendorId;
+                            }
                         }
                     } else if (detectedCircuitRecord.vendorId && potentialVendorIds.includes(detectedCircuitRecord.vendorId)) {
                         // Standard single vendor check
+                        matchedCircuitVendorId = detectedCircuitRecord.vendorId;
+                    } else if (usedSupplierCircuitId && detectedCircuitRecord.vendorId) {
+                        // If single vendor and they used the supplier ID, it's this vendor
                         matchedCircuitVendorId = detectedCircuitRecord.vendorId;
                     }
 
@@ -580,9 +591,15 @@ const createTicketFromEmail = async (emailData) => {
                         logger.info(`🎟️ [TICKET] 🎯 Disambiguated Sender: Assigned to Client ${clientId} based on Circuit ${circuitId}`);
                     }
                     // Handle dual-entities who sent a valid circuit ID but they don't own it as a client or vendor!
-                    else if (potentialClientIds.length > 0 && potentialVendorIds.length > 0) {
+                    else if (potentialClientIds.length > 0 && potentialVendorIds.length > 0 && !potentialVendorIds.includes('implicit-vendor-from-circuit')) {
                         ticketType = 'Confused';
                         logger.warn(`⚠️ 🎟️ [TICKET] 🚫 Dual-entity sender ${from} provided Circuit ID ${circuitId} but is not assigned to it. Marking as Confused.`);
+                    }
+                    // If we flagged it as implicit vendor earlier but failed to find a vendorId, keep it as Vendor to drop it properly
+                    else if (ticketType === 'Vendor') {
+                        vendorId = null;
+                        clientId = null;
+                        logger.info(`🎟️ [TICKET] 🎯 Disambiguated Sender: Forced to Vendor based on Supplier Circuit ID ${circuitId}, but no specific vendor matched.`);
                     }
                     else if (detectedCircuitRecord.clientId) {
                         clientId = detectedCircuitRecord.clientId;

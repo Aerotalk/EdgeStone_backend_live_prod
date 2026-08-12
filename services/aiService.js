@@ -459,13 +459,15 @@ const generateAgentNotificationSummary = async (emailData, context) => {
     try {
         const prompt = `
         You are "Keery", the intelligent assistant for EdgeStone ticketing system agents.
-        An incoming email was received but we did NOT raise a ticket for it. We need to notify the agents.
+        An incoming email was received but we did NOT raise a ticket for it (it was blocked). We need to notify the agents.
         
+        Read the provided email content carefully.
         Generate a clear, professional notification for the agents explaining the situation.
-        Explain who the sender/recipient involved is, what the email was about, and exactly WHY a ticket wasn't raised.
-        If it's vendor maintenance, explicitly state "Vendor has notified for maintenance for circuit [Circuit ID] (instead of raising a ticket from the vendor side)".
+        1. Summarize exactly what the email is about in 1-2 lines.
+        2. Explain who the sender is, and exactly WHY a ticket wasn't raised (based on the context provided).
+        3. IMPORTANT: If the email is about maintenance (e.g., planned maintenance, downtime, outage, scheduled activity), you MUST tag the notification by starting your response with "[MAINTENANCE]".
         
-        Keep it concise (2-3 sentences max) but full-fledged. Do not use markdown headers, just plain text or simple bolding.
+        Keep it concise (2-3 sentences max). Do not use markdown headers, just plain text or simple bolding.
         
         Context provided by the system:
         ${context.reason}
@@ -480,9 +482,9 @@ const generateAgentNotificationSummary = async (emailData, context) => {
             model: 'gpt-4o-mini',
             messages: [
                 { role: 'system', content: prompt },
-                { role: 'user', content: `Email Body Preview: ${(emailData.body || '').substring(0, 500)}` }
+                { role: 'user', content: `Email Body Preview: ${(emailData.body || '').substring(0, 1500)}` }
             ],
-            temperature: 0.5,
+            temperature: 0.4,
         });
 
         return response.choices[0].message.content.trim();
