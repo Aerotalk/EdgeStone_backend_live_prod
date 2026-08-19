@@ -377,15 +377,17 @@ const createTicketFromEmail = async (emailData) => {
 
             // EXPLICIT ROUTING: If the subject contains the explicit vendor suffix (e.g. [#1024-V]), force it into vendor thread
             // even if the email doesn't strictly match the saved vendor emails list in the DB yet!
+            let hasVTag = false;
             if (subject && /\[#V?\d+-V\]/i.test(subject)) {
                 logger.info(`🎟️ [TICKET] 🧵 Force-routing reply into Vendor thread due to -V tag in subject`);
                 isVendor = true;
+                hasVTag = true;
                 if (!finalVendorId) finalVendorId = existingTicket.vendorId; // Default to primary vendor if unmapped
             }
 
             // PREVENT FALSE POSITIVE: If the sender is the original client, don't default to vendor thread
             // UNLESS they explicitly used the -V tag (which is caught and set to true above)
-            if (!isVendor && existingTicket.email && existingTicket.email.toLowerCase() === from.toLowerCase()) {
+            if (isVendor && !hasVTag && existingTicket.email && existingTicket.email.toLowerCase() === from.toLowerCase()) {
                 isVendor = false;
                 finalVendorId = null;
             }
