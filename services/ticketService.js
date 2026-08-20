@@ -385,11 +385,32 @@ const createTicketFromEmail = async (emailData) => {
                 if (!finalVendorId) finalVendorId = existingTicket.vendorId; // Default to primary vendor if unmapped
             }
 
-            // PREVENT FALSE POSITIVE: If the sender is the original client, don't default to vendor thread
+            // Check if the sender actually belongs to the Ticket's Client Organization
+            let isTicketClientOrg = false;
+            if (existingTicket.clientId) {
+                const ClientModel = require('../models/client');
+                const ticketClient = await ClientModel.findClientById(existingTicket.clientId);
+                if (ticketClient) {
+                     isTicketClientOrg = ticketClient.emails.some(e => {
+                         const clientEmail = e.toLowerCase();
+                         if (clientEmail === from.toLowerCase()) return true;
+                         const clientDomain = clientEmail.split('@')[1];
+                         if (clientDomain && clientDomain === fromDomain && !['gmail.com', 'yahoo.com', 'outlook.com', 'hotmail.com'].includes(clientDomain)) {
+                             return true;
+                         }
+                         return false;
+                     });
+                }
+            }
+
+            // PREVENT FALSE POSITIVE: If the sender is the original client or belongs to the client org, don't default to vendor thread
             // UNLESS they explicitly used the -V tag (which is caught and set to true above)
-            if (isVendor && !hasVTag && existingTicket.email && existingTicket.email.toLowerCase() === from.toLowerCase()) {
-                isVendor = false;
-                finalVendorId = null;
+            if (isVendor && !hasVTag) {
+                if ((existingTicket.email && existingTicket.email.toLowerCase() === from.toLowerCase()) || isTicketClientOrg) {
+                    isVendor = false;
+                    finalVendorId = null;
+                    logger.info(`🎟️ [TICKET] 🛡️ Dual-Entity Resolution: Sender is assigned as the Client for this ticket. Routing to Client tab.`);
+                }
             }
 
             if (isVendor) {
